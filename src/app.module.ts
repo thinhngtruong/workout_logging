@@ -31,7 +31,7 @@ const config = loadConfig();
         },
         customProps: (req) => ({ userId: (req as unknown as { params?: { userId?: string } }).params?.userId }),
         autoLogging: { ignore: (req) => req.url === '/health' || req.url === '/metrics' },
-        serializers: { req: (req) => ({ method: req.method, url: req.url }), res: (res) => ({ statusCode: res.statusCode }) },
+        serializers: { req: (req) => ({ id: req.id, method: req.method, url: req.url }), res: (res) => ({ statusCode: res.statusCode }) },
       },
     }),
   ],
