@@ -1,0 +1,50 @@
+# Exercise catalog and muscle-group mapping. Upserted into the database by `npm run migrate`.
+# Editing this file (and re-running the migrate step) changes the mapping; no code change needed.
+exercises:
+  - name: Bench Press
+    primary: [chest]
+    secondary: [triceps, shoulders]
+  - name: Incline Bench Press
+    primary: [chest]
+    secondary: [shoulders, triceps]
+  - name: Overhead Press
+    primary: [shoulders]
+    secondary: [triceps]
+  - name: Back Squat
+    primary: [quads, glutes]
+    secondary: [hamstrings, core]
+  - name: Front Squat
+    primary: [quads]
+    secondary: [glutes, core]
+  - name: Deadlift
+    primary: [hamstrings, glutes, back]
+    secondary: [forearms, core]
+  - name: Romanian Deadlift
+    primary: [hamstrings]
+    secondary: [glutes, back]
+  - name: Barbell Row
+    primary: [back]
+    secondary: [biceps]
+  - name: Pull Up
+    primary: [back]
+    secondary: [biceps]
+  - name: Dip
+    primary: [chest, triceps]
+    secondary: [shoulders]
+  - name: Bicep Curl
+    primary: [biceps]
+  - name: Tricep Extension
+    primary: [triceps]
+  - name: Leg Press
+    primary: [quads]
+    secondary: [glutes]
+  - name: Lunge
+    primary: [quads, glutes]
+    secondary: [hamstrings]
+  - name: Hip Thrust
+    primary: [glutes]
+    secondary: [hamstrings]
+  - name: Lateral Raise
+    primary: [shoulders]
+  - name: Calf Raise
+    primary: [calves]
