@@ -294,6 +294,53 @@ describe('Workout Logging API (e2e)', () => {
     });
   });
 
+  describe('performance at depth', () => {
+    const heavy = 'heavy-user';
+
+    beforeAll(async () => {
+      // 50,000 Bench Press entries x 4 sets = 200,000 sets on ONE exercise: the design's worst case.
+      // The last two months are light (a comeback after injury), so every PR in those ranges sits at the
+      // BOTTOM of the per-metric indexes: walking them filtered by date would read almost all 200k rows.
+      await pool.query(`
+        WITH ex AS (SELECT id FROM exercises WHERE owner_user_id IS NULL AND normalized_name = 'bench press'),
+        e AS (
+          INSERT INTO workout_entries (id, user_id, exercise_id, exercise_name, performed_on)
+          SELECT gen_random_uuid(), $1, ex.id, 'Bench Press', date '2026-11-20' - (g / 3)
+          FROM generate_series(0, 49999) g, ex
+          RETURNING id, exercise_id, performed_on),
+        s AS (
+          SELECT e.*, s AS set_index, 1 + (s * 3) AS reps,
+                 CASE WHEN e.performed_on >= date '2026-10-01' THEN 20 ELSE 40 + (hashtext(e.id::text || s) & 127) END AS w
+          FROM e, generate_series(1, 4) s)
+        INSERT INTO workout_sets (entry_id, user_id, exercise_id, performed_on, set_index, reps, weight_value, weight_unit, weight_kg)
+        SELECT id, $1, exercise_id, performed_on, set_index, reps, w, 'kg', w FROM s`, [heavy]);
+      await pool.query('ANALYZE workout_entries; ANALYZE workout_sets');
+    });
+
+    const medianMs = async (url: string, runs = 7) => {
+      await http().get(url).expect(200); // warm-up
+      const times: number[] = [];
+      for (let i = 0; i < runs; i++) {
+        const t = performance.now();
+        await http().get(url).expect(200);
+        times.push(performance.now() - t);
+      }
+      return times.sort((a, b) => a - b)[Math.floor(runs / 2)];
+    };
+
+    // Regression: the planner walked the per-metric index filtering by date (~100+ ms) instead of the range index (~2 ms)
+    it('compares one month vs the previous on 200,000 sets in well under 40 ms', async () => {
+      const url = `/users/${heavy}/personal-records/compare?exercise=Bench Press&currentFrom=2026-11-01&currentTo=2026-11-30&previousFrom=2026-10-01&previousTo=2026-10-31`;
+      expect(await medianMs(url)).toBeLessThan(40);
+    });
+
+    it('reads all-time PRs and a deep history page in well under 40 ms', async () => {
+      expect(await medianMs(`/users/${heavy}/personal-records?exercise=Bench Press`)).toBeLessThan(40);
+      const page1 = await http().get(`/users/${heavy}/workouts?limit=20&from=2016-01-01`).expect(200);
+      expect(await medianMs(`/users/${heavy}/workouts?limit=20&from=2016-01-01&cursor=${page1.body.page.nextCursor}`)).toBeLessThan(40);
+    });
+  });
+
   describe('operations', () => {
     it('serves health, metrics and a request id', async () => {
       await http().get('/health').expect(200, { status: 'ok' });

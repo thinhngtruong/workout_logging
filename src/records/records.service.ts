@@ -94,19 +94,30 @@ export class RecordsService {
     throw new ApiError(404, 'EXERCISE_NOT_FOUND', `Exercise '${name}' not found`, { suggestions: await this.catalog.suggest(userId, name) });
   }
 
-  /** All metrics for all ranges in ONE statement: 3 × ranges index-backed `LIMIT 1` reads joined by UNION ALL. */
+  /**
+   * All metrics for all ranges in ONE statement (UNION ALL of `LIMIT 1` reads).
+   * All-time: each metric walks its own partial index and stops at the first row (<1 ms at 200k sets).
+   * Date range: the range is scanned once on (user_id, exercise_id, performed_on) into a MATERIALIZED CTE and the
+   * three winners are picked from it. Without this the planner walked the metric index filtering by date:
+   * 122 ms for one month of a 200k-set exercise, vs ~1 ms this way.
+   */
   private async query<K extends string>(userId: string, exerciseId: string, ranges: Record<K, Range>, unit: string): Promise<Record<K, Records>> {
-    const parts = Object.entries<Range>(ranges).flatMap(([label, r]) =>
-      METRICS.map(
-        (metric) => sql`(SELECT ${label} AS label, ${metric} AS metric, reps, weight_value, weight_unit, weight_kg, volume_kg, e1rm_kg, performed_on
-          FROM workout_sets
-          WHERE user_id = ${userId} AND exercise_id = ${exerciseId} AND weight_kg > 0
-            ${r.from ? sql`AND performed_on >= ${r.from}::date` : sql``}
-            ${r.to ? sql`AND performed_on <= ${r.to}::date` : sql``}
-          ORDER BY ${METRIC_ORDER[metric]} LIMIT 1)`,
-      ),
-    );
-    const { rows } = await sql<WinningRow>`${sql.join(parts, sql` UNION ALL `)}`.execute(this.db);
+    const scope = sql`user_id = ${userId} AND exercise_id = ${exerciseId} AND weight_kg > 0`;
+    const cols = sql`id, reps, weight_value, weight_unit, weight_kg, volume_kg, e1rm_kg, performed_on`;
+    const ctes: RawBuilder<unknown>[] = [];
+    const parts = Object.entries<Range>(ranges).flatMap(([label, r], i) => {
+      let source = sql`workout_sets WHERE ${scope}`;
+      if (r.from || r.to) {
+        const name = sql.raw(`range_${i}`);
+        ctes.push(sql`${name} AS MATERIALIZED (SELECT ${cols} FROM workout_sets WHERE ${scope}
+          ${r.from ? sql`AND performed_on >= ${r.from}::date` : sql``}
+          ${r.to ? sql`AND performed_on <= ${r.to}::date` : sql``})`);
+        source = name;
+      }
+      return METRICS.map((metric) => sql`(SELECT ${label} AS label, ${metric} AS metric, ${cols} FROM ${source} ORDER BY ${METRIC_ORDER[metric]} LIMIT 1)`);
+    });
+    const withClause = ctes.length ? sql`WITH ${sql.join(ctes)} ` : sql``;
+    const { rows } = await sql<WinningRow>`${withClause}${sql.join(parts, sql` UNION ALL `)}`.execute(this.db);
 
     const out = Object.fromEntries(Object.keys(ranges).map((k) => [k, { maxWeight: null, maxVolume: null, bestE1rm: null }])) as Record<K, Records>;
     for (const row of rows) out[row.label as K][row.metric] = this.toRecord(row, unit);
