@@ -259,6 +259,13 @@ describe('Workout Logging API (e2e)', () => {
       expect(empty.body).toMatchObject({ records: { maxWeight: null, maxVolume: null, bestE1rm: null }, message: expect.any(String) });
     });
 
+    it('has no weight PRs for an exercise logged only with bodyweight (0 kg) sets', async () => {
+      const user = newUser();
+      await log(user, [{ exerciseName: 'Dip', date: '2026-11-01', sets: [set(0, 15), set(0, 12)] }]).expect(201);
+      const res = await http().get(`/users/${user}/personal-records?exercise=Dip`).expect(200);
+      expect(res.body).toMatchObject({ records: { maxWeight: null, maxVolume: null, bestE1rm: null }, message: expect.any(String) });
+    });
+
     it('returns 404 with close names for an unknown exercise', async () => {
       const res = await http().get(`/users/${newUser()}/personal-records?exercise=bench pres`).expect(404);
       expect(res.body.code).toBe('EXERCISE_NOT_FOUND');
